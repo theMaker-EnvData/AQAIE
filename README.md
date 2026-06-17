@@ -302,10 +302,6 @@ Rather than reproducing an existing CTM workflow, the project investigates wheth
 
 ---
 
-"This repository documents the design evolution of an observation-driven air-quality forecasting system, where most spatial locations are never directly observed."
-
----
-
 ## References
 
 ### Category 1: End-to-End Weather / Air-Quality Forecasting
