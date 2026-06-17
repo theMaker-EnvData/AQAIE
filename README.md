@@ -83,16 +83,15 @@ flowchart TB
 
 ---
 
-## Key Design Decisions
+## Core Ideas
 
-| Decision                                                                   | Outcome                                                             |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Sparse observations encoded as station tokens rather than rasterized grids | Reduced memory overhead and improved scalability                    |
-| INR-based assimilation before forecasting                                  | Enabled dense field reconstruction from sparse station observations |
-| Multi-horizon forecasting head                                             | Predicts multiple lead times in a single forward pass               |
-| Physics-informed constraints                                               | Reduced implausible solutions in sparsely supervised regions        |
-| Input and skip-path anti-alias filtering                                   | Mitigated grid-scale artifacts introduced by meteorological inputs  |
-| CAMS background prior with learned gating                                  | Allows the model to selectively use coarse-scale guidance           |
+1. Reconstruct a dense concentration field from sparse monitoring stations.
+2. Forecast the reconstructed field rather than forecasting stations directly.
+3. Use physics-informed regularization only where observations are absent.
+4. Treat coarse-scale model products as optional priors through learned gating.
+5. Diagnose artifacts visually and suppress them with targeted architectural changes.
+
+---
 
 ## Evaluation
 
