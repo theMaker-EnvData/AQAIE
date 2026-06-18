@@ -143,11 +143,11 @@ Unlike weather forecasting systems trained on dense reanalysis grids, supervisio
 
 ### 1. Baseline: End-to-End Forecasting
 
-The project began with a straightforward adaptation of recent end-to-end forecasting architectures such as Aardvark Weather [1].
+The initial baseline was motivated by recent advances in end-to-end, data-driven weather forecasting systems. Aardvark Weather [1] demonstrated an observation-driven forecasting framework that reduces dependence on traditional numerical weather prediction components by directly learning from heterogeneous observational inputs. Pangu-Weather [2] introduced a hierarchical multi-step forecasting architecture based on temporal aggregation, where forecasts at multiple lead times are constructed through structured intermediate representations rather than naive step-by-step autoregressive rollouts.
 
-A U-Net backbone consumed meteorological inputs, static features, and station observations, producing direct multi-horizon forecasts following the philosophy of Pangu-Weather [2].
+Following these ideas, a U-Net backbone was designed to consume meteorological inputs, static features, and station observations, producing multi-horizon forecasts in a single forward pass. A direct multi-horizon decoding strategy was adopted instead of iterative temporal rollout, motivated by two considerations in the sparse-observation setting: (1) error propagation in iterative forecasting is amplified when supervision is available only at irregular station locations, and (2) computational efficiency is important for potential deployment under constrained hardware settings.
 
-While this approach produced reasonable station-level predictions, it struggled to construct physically plausible spatial fields away from observation locations.
+While this approach achieved reasonable station-level predictive performance, it struggled to generate physically consistent spatial fields away from observation locations due to limited spatial supervision and weak inductive bias over continuous fields.
 
 ---
 
@@ -308,8 +308,9 @@ Rather than reproducing an existing CTM workflow, the project investigates wheth
 
 | #   | Citation                                                                                                                | Relevance                                                                                                            |
 | --- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| [1] | Vaughan, A., Markou, S., et al. *Aardvark Weather: End-to-End Data-Driven Weather Forecasting.* Nature, 2024.           | Initial benchmark architecture. Observation-driven forecasting with a simple U-Net backbone and multi-source inputs. |
-| [2] | Bi, K., et al. *Pangu-Weather: A 3D High-Resolution Model for Fast and Accurate Global Weather Forecast.* Nature, 2023. | Direct multi-horizon prediction strategy adopted instead of autoregressive rollout.                                  |
+
+| [1] | Vaughan, A., Markou, S., et al. *Aardvark Weather: End-to-End Data-Driven Weather Forecasting.* Nature, 2024. | End-to-end observation-driven forecasting framework that integrates heterogeneous observational data into a unified learning system, reducing reliance on traditional numerical weather prediction pipelines. This motivated the use of direct observation-to-forecast modeling in AQAIE. |
+| [2] | Bi, K., et al. *Pangu-Weather: A 3D High-Resolution Model for Fast and Accurate Global Weather Forecast.* Nature, 2023. | Hierarchical multi-step forecasting model based on temporal aggregation, where multi-lead-time predictions are generated through structured intermediate representations rather than naive autoregressive rollouts. This informed the multi-horizon forecasting design in the baseline. |
 
 ### Category 2: Artifact Analysis & Frequency-Domain Stabilization
 
@@ -333,4 +334,4 @@ Rather than reproducing an existing CTM workflow, the project investigates wheth
 | ---- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | [9]  | Tancik, M., et al. *Fourier Features Let Networks Learn High-Frequency Functions.* NeurIPS, 2020.         | Fourier positional encoding used in the INR encoder.                                                                          |
 | [10] | Sitzmann, V., et al. *Implicit Neural Representations with Periodic Activation Functions.* NeurIPS, 2020. | Coordinate-based neural field modeling and continuous spatial representation concepts.                                        |
-| [11] | Mildenhall, B., et al. *NeRF: Representing Scenes as Neural Radiance Fields.* ECCV, 2020.                 | Implicit continuous field reconstruction from sparse observations. Conceptual precedent for sparse-to-dense field generation. |
+| [11] | Mildenhall, B., et al. *NeRF: Representing Scenes as Neural Radiance Fields.* ECCV, 2020.                 | Implicit neural representation of continuous 3D scenes via coordinate-based MLPs, learning a volumetric radiance field from multi-view image supervision. This work established a foundational paradigm for neural continuous field representation. |
