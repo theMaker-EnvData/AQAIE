@@ -308,7 +308,6 @@ Rather than reproducing an existing CTM workflow, the project investigates wheth
 
 | #   | Citation                                                                                                                | Relevance                                                                                                            |
 | --- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-
 | [1] | Vaughan, A., Markou, S., et al. *Aardvark Weather: End-to-End Data-Driven Weather Forecasting.* Nature, 2024. | End-to-end observation-driven forecasting framework that integrates heterogeneous observational data into a unified learning system, reducing reliance on traditional numerical weather prediction pipelines. This motivated the use of direct observation-to-forecast modeling in AQAIE. |
 | [2] | Bi, K., et al. *Pangu-Weather: A 3D High-Resolution Model for Fast and Accurate Global Weather Forecast.* Nature, 2023. | Hierarchical multi-step forecasting model based on temporal aggregation, where multi-lead-time predictions are generated through structured intermediate representations rather than naive autoregressive rollouts. This informed the multi-horizon forecasting design in the baseline. |
 
