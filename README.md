@@ -28,57 +28,51 @@ AQAIE explores whether neural assimilation and physics-informed learning can rec
 
 ```mermaid
 flowchart TB
-
-  subgraph INPUTS["1. Inputs"]
-    STATIONS["Surface Stations<br/>sparse observations"]
-    ERA5_T["ERA5 Temporal<br/>multi-lag meteorology"]
-    ERA5_D["ERA5 Direct<br/>current meteorology"]
-    CAMS["Optional Background Prior<br/>CAMS forecast"]
-    STATIC["Static Features<br/>DEM, land use, population"]
+  subgraph Inputs["1. Inputs"]
+    STATIONS["Surface Stations<br/>6 pollutants × 3 time lags"]
+    ERA5["ERA5 Meteorology<br/>temporal 10ch×3 + direct 21ch"]
+    WIND["Wind UV forecast<br/>per horizon (up to 24h)<br/>+ t=0 wind into backbone"]
+    CAMS["CAMS/GEMS/Daylight<br/>26ch background"]
+    STATIC["Static Geography<br/>DEM, LULC, population, Gaussian (16ch)<br/>→ cross-attn context"]
+    TIME["Time encoding<br/>hour/month sin-cos"]
   end
 
-  subgraph ASSIM["2. Sparse Observation Assimilation (INR)"]
-    CROSS["Cross-Attention INR<br/>Fourier PE + distance-aware top-k"]
-    DENSE["Dense Observation Field<br/>(c₀ reconstruction)"]
-
-    STATIONS --> CROSS
-    ERA5_T --> CROSS
-    ERA5_D --> CROSS
-    CROSS --> DENSE
+  subgraph INPAINT["2. Spatial Inpainter (ConvInpainter)"]
+    direction LR
+    KINR["NW Cross-Attention<br/>+ species_head_mix<br/>+ FiLM Conv Decoder<br/>+ Species Decoder Head (zero-init)"]
+    C0["c₀ field [6 species, H×W]<br/>current-time dense reconstruction"]
+    KINR --> C0
   end
 
-  subgraph BACKBONE["3. Forecast Backbone"]
-    OBS["Observation Features<br/>(from INR)"]
-    MET["Meteorological Features"]
-    FUSION["Feature Fusion"]
-    UNET["U-Net Backbone<br/>FiLM conditioned"]
-
-    DENSE --> OBS
-    ERA5_T --> MET
-    ERA5_D --> MET
-
-    OBS --> FUSION
-    MET --> FUSION
-
-    FUSION --> UNET
-
-    STATIC -. conditioning .-> UNET
-    CAMS -. gated injection .-> UNET
+  subgraph PROC["3. Swin Transport Processor"]
+    direction LR
+    STEM["Input Assembly<br/>c₀ 3-lag + Met temporal + Met direct + Wind t=0<br/>→ 192ch stem"]
+    SWIN["Swin Transformer<br/>192ch, 18 blocks (3 stages × 6)<br/>per stage: 5× window attn + 1× GlobalAttentionBlock<br/>+ CAMS branch injection (learned gate)<br/>+ TimeFiLM conditioning<br/>+ Static cross-attention (Q=dyn, K=static, V=dyn)"]
+    FEAT["feat [192ch, H×W]"]
+    STEM --> SWIN --> FEAT
   end
 
-  subgraph OUTPUT["4. Multi-Horizon Forecast"]
-    HEAD["Forecast Head<br/>base + cumulative delta"]
-    PRED["6 pollutants × 6 horizons<br/>1h · 2h · 4h · 8h · 12h · 24h"]
-
-    UNET --> HEAD --> PRED
+  subgraph HEAD["4. 6-Head Residual Forecast Decoder"]
+    direction LR
+    FILM["Shared FiLM<br/>time_context + lead_time<br/>→ modulate feat per horizon"]
+    HEADS["6 Independent Heads<br/>Conv(194→192→192→6×nc)<br/>each produces Δ for one horizon"]
+    RES["pred = c₀ + Δ<br/>(residual formulation)"]
+    FILM --> HEADS --> RES
   end
 
-  subgraph REG["5. Physics-Informed Constraints"]
-    PHYS["Assimilation<br/>Advection<br/>Semi-Lagrangian<br/>Quantile & Auxiliary Losses"]
+  subgraph TRAIN["5. Training"]
+    LOSS["Masked Huber Loss<br/>pred vs obs + teacher dense field<br/>+ advection/bound/transport penalties"]
   end
 
-  DENSE --> PHYS
-  HEAD --> PHYS
+  STATIONS --> INPAINT
+  ERA5 --> INPAINT & PROC
+  WIND --> HEAD & PROC
+  CAMS --> PROC
+  STATIC --> PROC
+  TIME --> PROC & HEAD
+  INPAINT --> PROC & HEAD
+  PROC --> HEAD
+  HEAD --> TRAIN
 ```
 
 ---
@@ -90,6 +84,7 @@ flowchart TB
 3. Use physics-informed regularization only where observations are absent.
 4. Treat coarse-scale model products as optional priors through learned gating.
 5. Diagnose artifacts visually and suppress them with targeted architectural changes.
+6. Allow per-species structural differentiation at both the assimilation and forecasting stages.
 
 ---
 
@@ -118,15 +113,24 @@ Selected components are included to illustrate data pipeline and the architectur
 | `build_airkorea_parquet.py` | Sparse station dataset construction |
 | `preprocess_pop_1km.py` | Population raster preprocessing and aggregation |
 
-### Modeling
+### Modeling (current)
 
 | Component | Description |
 |------------|-------------|
-| `obs_sparse_inr.py` | Sparse observation assimilation using Fourier features and cross-attention |
-| `fusion.py` | Meteorological feature fusion and preprocessing |
+| `obs_conv_inpainter.py` | Sparse-to-dense assimilation via NW cross-attention, FiLM decoder, and per-species differentiation |
+| `backbone_swin.py` | Swin Transformer backbone with GlobalAttentionBlock and StaticCrossAttention |
+| `local_residual_head.py` | 6 independent horizon heads with shared FiLM conditioning and residual formulation |
+| `branch_cams.py` | CAMS/GEMS gated injection with learned gate |
+| `fusion.py` | Temporal 3D meteorological encoder with FiLM conditioning |
+| `conv_blocks.py` | Shared convolutional building blocks |
+
+### Modeling (legacy — prior architecture)
+
+| Component | Description |
+|------------|-------------|
+| `obs_sparse_inr.py` | Earlier INR using Fourier features and distance-aware top-k cross-attention |
 | `backbone_unet.py` | U-Net forecasting backbone with FiLM conditioning |
-| `head_multi_horizon.py` | Multi-horizon quantile forecasting head |
-| `branch_cams.py` | Optional coarse-scale background prior |
+| `head_multi_horizon.py` | Multi-horizon head with base + cumulative delta formulation |
 | `losses.py` | Physics-informed and uncertainty-aware training losses |
 
 ---
@@ -213,23 +217,86 @@ This mechanism encourages transport-consistent evolution without requiring fully
 
 ---
 
+### 6. From Convolution to Attention: Swin Transformer Backbone
+
+The U-Net backbone encoded multi-scale context through downsampling and skip connections. However, convolution remained limited to local receptive fields, making long-range spatial interactions difficult to model efficiently.
+
+The backbone was replaced with a Swin Transformer operating at full spatial resolution. The network consists of 18 transformer blocks organized into three stages of six, using shifted-window self-attention with FiLM conditioning from temporal embeddings.
+
+This transition replaces purely local convolution with hierarchical windowed attention. Local structures are preserved while wider spatial dependencies are captured through shifted windows, improving feature representation at modest computational cost.
+
+---
+
+### 7. Global Attention and Terrain-Aware Transport
+
+Windowed self-attention provides efficient local context, but window boundaries limit interactions across distant regions. Features cannot directly attend outside the current window until the next shifted-window block, making long-range spatial communication gradual.
+
+To capture full-domain interactions, the last block of each Swin stage was replaced with a `GlobalAttentionBlock`: the feature map is spatially downsampled (×4), full self-attention is computed over the reduced sequence, and the result is bilinearly upsampled back to the original resolution with a residual connection.
+
+Simultaneously, the static geography path was redesigned. The previous approach (`StaticSpatialFiLM`) modulated features multiplicatively, allowing terrain to scale feature responses but not influence attention allocation. This was replaced with `StaticCrossAttention` inside each `GlobalAttentionBlock` (Q = dynamic features, K = static geography projection, V = dynamic features). Static geography now guides where attention is allocated rather than simply scaling feature activations.
+
+The output projection is initialized with Xavier × 0.1 so that static influence starts near zero and is learned only where supported by the training signal.
+
+---
+
+### 8. Species-Aware Inpainting: Not All Pollutants Spread the Same
+
+The original inpainter applied a single shared interpolation strategy across all six pollutant species. This imposed the same spatial reconstruction behavior on pollutants with fundamentally different characteristics. PM₂.₅ often exhibits localized gradients near emission sources, whereas O₃ generally forms smoother regional patterns through atmospheric chemistry.
+
+Two lightweight mechanisms were introduced to enable species-specific reconstruction:
+
+* **species_head_mix**: A per-species softmax mixture over the cross-attention heads. Each species learns its own combination of attention heads, allowing different interpolation behaviors while preserving a shared attention module. The mixture is initialized uniformly (zero logits), recovering the legacy shared behavior at epoch 0.
+
+* **species_decoder_head**: A per-species residual readout (3×3 convolution, zero-initialized) added after the shared decoder. The initial output is exactly zero, leaving the shared decoder unchanged. During training, each species can learn its own residual spatial refinement.
+
+Together, these mechanisms allow each pollutant to develop its own reconstruction characteristics while retaining a shared backbone and decoder.
+
+---
+
 ### Current Direction
 
 Ongoing work focuses on three areas:
 
-* improving long-range transport consistency
-* integrating geostationary satellite observations
-* transitioning from direct multi-horizon prediction toward autoregressive refinement
+* **Species and horizon structural differentiation**: independent decoder heads and species-aware inpainting enabling physically distinct spatial behavior per pollutant and forecast lead time
+* **Long-range spatial reasoning**: GlobalAttentionBlock captures transport across the full spatial domain without window boundary limitations
+* **Terrain-aware transport routing**: static geography drives attention routing through cross-attention rather than simple feature modulation
 
 The overall goal remains unchanged: reconstructing and forecasting high-resolution air-quality fields from sparse observational networks.
 
 ---
 
+## Residual Formulation Verification
+
+The forecast head predicts Δ (the change relative to the assimilated field c₀) rather than an absolute concentration field. This residual formulation introduces a simple structural prior: at short forecast horizons, the current atmospheric state is already a strong predictor, so the network should modify it only when supported by the observations and meteorological conditions.
+
+The examples below illustrate how this behavior emerges during training.
+
+### h+1 (1 hour ahead)
+
+![rh_pm25_h0](assets/rh_pm25_h0.png)
+
+The predicted residual remains small (approximately **±1.5 µg/m³**), indicating that only minor corrections are applied to the assimilated c₀ field. Most spatial structure is preserved, with localized adjustments appearing only where the future observations differ from the current state.
+
+### h+24 (24 hours ahead)
+
+![rh_pm25_h24](assets/rh_pm25_h24.png)
+
+The predicted residual increases to approximately **±6 µg/m³** and becomes spatially coherent across the domain. The forecast departs substantially from c₀, indicating that the network increasingly predicts future changes rather than preserving the current field.
+
+### Interpretation
+
+| Horizon | Residual scale | Behavior |
+|---------|----------------|----------|
+| h+1 | ±1.5 µg/m³ | Small corrections to c₀ |
+| h+24 | ±6 µg/m³ | Large forecast-driven deviations |
+
+These examples are consistent with the intended role of the residual formulation. For short lead times, the network applies only small corrections to the assimilated field. As forecast horizon increases, it progressively predicts larger deviations from the current state without requiring horizon-specific architectures or manually scheduled training strategies.
+
+---
+
 ## Artifact Suppression
 
-Early training runs developed persistent high-frequency spatial artifacts.
-The issue was diagnosed through intermediate field visualizations and
-resolved without sacrificing hold-out station performance.
+Early training runs developed persistent high-frequency spatial artifacts. The issue was diagnosed through intermediate field visualizations and resolved without sacrificing hold-out station performance.
 
 | Metric | Before | After |
 |----------|----------|----------|
@@ -238,8 +305,7 @@ resolved without sacrificing hold-out station performance.
 | LKO R² (PM2.5) | 0.38 | 0.38 |
 | Uncertainty spread | 0.13 | **0.11** |
 
-Severe high-frequency artifacts were removed while predictive skill
-remained effectively unchanged.
+Severe high-frequency artifacts were removed while predictive skill remained effectively unchanged.
 
 ### Before
 
@@ -249,21 +315,12 @@ remained effectively unchanged.
 
 ![artifact_after](assets/artifact_after.png)
 
-*Diagnostic panel used during development. Each panel contains:*
-
-- Predicted median field (q50)
-- Predicted field with observation dots
-- Error at observation locations
-- Quantile spread (uncertainty)
-- INR reconstruction (`c₀`) with observations
-- Forecast delta relative to `c₀`
-
 ---
 
 ## Tech Stack
 
 **Modeling**
-`PyTorch` `U-Net` `INR` `Cross-Attention` `PINN`
+`PyTorch` `Swin Transformer` `INR` `Cross-Attention` `PINN`
 
 **Data**
 `ECMWF/ERA5` `CAMS/EAC4` `Parquet` `Zarr`

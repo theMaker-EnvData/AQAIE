@@ -425,24 +425,9 @@ class FusionPreprocessor(nn.Module):
         time_context_lag: torch.Tensor | None = None,
         static_16: torch.Tensor | None = None,
         precomputed_geometry: tuple | None = None,
-        *,
-        h00_only: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """INR encoder + field heads only (skip met temporal stem and fusion conv)."""
         static_ctx = self._resolve_static_ctx(static_16)
-        if h00_only:
-            c0_inr = self.obs_temporal_encoder.forward_h00_only(
-                coord=obs_stations_coord,
-                station_mask=obs_stations_mask,
-                values=obs_stations_values,
-                valid=obs_stations_valid,
-                met_temporal_10x3=met_temporal_10x3,
-                met_direct_21=met_direct_21,
-                static_ctx=static_ctx,
-                precomputed_geometry=precomputed_geometry,
-            )
-            field_lags = c0_inr.unsqueeze(1)
-            return c0_inr, c0_inr, field_lags
         enc_out = self.obs_temporal_encoder(
             coord=obs_stations_coord,
             station_mask=obs_stations_mask,
@@ -458,30 +443,6 @@ class FusionPreprocessor(nn.Module):
         obs_temporal_feat, c0_inr, field_lags = enc_out
         return obs_temporal_feat, c0_inr, field_lags
 
-    def forward_inr_h00_only(
-        self,
-        obs_stations_coord: torch.Tensor,
-        obs_stations_mask: torch.Tensor,
-        obs_stations_values: torch.Tensor,
-        obs_stations_valid: torch.Tensor,
-        met_temporal_10x3: torch.Tensor,
-        met_direct_21: torch.Tensor,
-        static_16: torch.Tensor | None = None,
-        precomputed_geometry: tuple | None = None,
-    ) -> torch.Tensor:
-        """v3: single h00 field [B,P,H,W] at batch anchor time."""
-        static_ctx = self._resolve_static_ctx(static_16)
-        return self.obs_temporal_encoder.forward_h00_only(
-            coord=obs_stations_coord,
-            station_mask=obs_stations_mask,
-            values=obs_stations_values,
-            valid=obs_stations_valid,
-            met_temporal_10x3=met_temporal_10x3,
-            met_direct_21=met_direct_21,
-            static_ctx=static_ctx,
-            precomputed_geometry=precomputed_geometry,
-        )
-
     def forward_from_batch_inputs(self, inputs: Mapping[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         return self.forward(
             obs_stations_coord=inputs["obs_stations_coord"],
@@ -493,4 +454,4 @@ class FusionPreprocessor(nn.Module):
         )
 
 
-__all__ = ["FusionPreprocessor", "Temporal3DEncoderWithFiLM", "ObsTemporalPartialConvEncoderWithFiLM"]
+__all__ = ["FusionPreprocessor", "Temporal3DEncoderWithFiLM"]

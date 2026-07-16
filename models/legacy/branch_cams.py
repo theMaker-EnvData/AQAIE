@@ -47,7 +47,7 @@ class BranchCamsEncoder(nn.Module):
         block_channels: tuple[int, int, int] = (192, 192, 256),
         bottleneck_channels: int = 768,
         mid_decoder_d2_channels: int = 288,
-        gate_bias_init: float = -0.5,
+        gate_bias_init: float = -2.0,
     ) -> None:
         super().__init__()
         b1, b2, b3 = block_channels
